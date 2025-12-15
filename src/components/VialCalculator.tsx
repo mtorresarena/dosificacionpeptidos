@@ -46,6 +46,8 @@ const DILUENT_OPTIONS = ["1", "2", "3", "5"];
 const DOSE_OPTIONS_MCG = ["50", "100", "250", "500"];
 const DOSE_OPTIONS_MG = ["0.5", "1", "2.5", "5"];
 const DOSE_OPTIONS_IU = ["2", "4", "6", "8"]; // IU comunes para HGH
+const VIAL_OPTIONS_PEN_MG = ["4", "5", "8", "12"]; // mg comunes para plumas
+const DOSE_OPTIONS_PEN_MG = ["0.5", "1", "1.5", "2"]; // mg comunes para dosis de pluma
 
 type CalculatorMode = "syringe" | "pen";
 type ProductType = "peptide" | "hgh";
@@ -238,6 +240,10 @@ export function VialCalculator() {
   // Estados para pluma
   const [penVialIU, setPenVialIU] = useState("12"); // IU en el cartucho
   const [penDoseIU, setPenDoseIU] = useState("4"); // Dosis deseada en IU
+  const [penInputUnit, setPenInputUnit] = useState<"IU" | "mg">("IU"); // Unidad para cantidad cartucho
+  const [penVialMgInput, setPenVialMgInput] = useState("4"); // mg en el cartucho
+  const [penDoseUnit, setPenDoseUnit] = useState<"IU" | "mg">("IU"); // Unidad para dosis
+  const [penDoseMgInput, setPenDoseMgInput] = useState("1"); // Dosis en mg
 
   // Convertir IU a mg para HGH
   const vialMgFromIU = parseFloat(vialAmountIU) / HGH_IU_PER_MG;
@@ -257,18 +263,26 @@ export function VialCalculator() {
   const result = useCalculator(calculatorInputs);
 
   // Cálculos para pluma
+  // Calcular IU efectivos según la unidad seleccionada
+  const penVialIUCalc = penInputUnit === "IU"
+    ? parseFloat(penVialIU)
+    : parseFloat(penVialMgInput) * HGH_IU_PER_MG;
+  const penDoseIUCalc = penDoseUnit === "IU"
+    ? parseFloat(penDoseIU)
+    : parseFloat(penDoseMgInput) * HGH_IU_PER_MG;
+
   // En una pluma: el cartucho tiene 3mL, con X IU reconstituidos
   // Concentración = IU / 3mL = IU/mL
   // Cada click = 1 IU en el dial, pero el volumen real depende de la concentración
   // Si la pluma está calibrada para 1 click = 1 IU (como las plumas de insulina/HGH)
   // Entonces clicks = dosis en IU
-  const penConcentrationIUperML = parseFloat(penVialIU) / PEN_CARTRIDGE_ML;
-  const penClicksNeeded = Math.round(parseFloat(penDoseIU)); // 1 click = 1 IU
-  const penVolumeML = parseFloat(penDoseIU) / penConcentrationIUperML;
-  const penVialMg = parseFloat(penVialIU) / HGH_IU_PER_MG;
-  const penDoseMg = parseFloat(penDoseIU) / HGH_IU_PER_MG;
-  const penIsValid = parseFloat(penVialIU) > 0 && parseFloat(penDoseIU) > 0;
-  const penExceedsVial = parseFloat(penDoseIU) > parseFloat(penVialIU);
+  const penConcentrationIUperML = penVialIUCalc / PEN_CARTRIDGE_ML;
+  const penClicksNeeded = Math.round(penDoseIUCalc); // 1 click = 1 IU
+  const penVolumeML = penDoseIUCalc / penConcentrationIUperML;
+  const penVialMg = penVialIUCalc / HGH_IU_PER_MG;
+  const penDoseMg = penDoseIUCalc / HGH_IU_PER_MG;
+  const penIsValid = penVialIUCalc > 0 && penDoseIUCalc > 0;
+  const penExceedsVial = penDoseIUCalc > penVialIUCalc;
 
   // Handlers
   const updateInput = useCallback(
@@ -299,7 +313,7 @@ export function VialCalculator() {
         <header className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <img
-              src={`${process.env.NODE_ENV === 'production' ? '/dosificacionpeptidos' : ''}/logo-qspain.jpg`}
+              src="/dosificacionpeptidos/logo-qspain.jpg"
               alt="Q-Spain Logo"
               width={48}
               height={48}
@@ -632,29 +646,72 @@ export function VialCalculator() {
                   <p>Cartucho estándar: {PEN_CARTRIDGE_ML} mL | 1 click = 1 IU</p>
                 </div>
 
-                {/* Cantidad de IU en el cartucho */}
+                {/* Cantidad en el cartucho */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="text-sm font-medium text-slate-700">
-                      ¿Cuántas IU has reconstituido en el cartucho?
+                      ¿Cuánto has reconstituido en el cartucho?
                     </label>
-                    <NumberInputWithArrows
+                    {penInputUnit === "IU" ? (
+                      <NumberInputWithArrows
+                        value={penVialIU}
+                        onChange={setPenVialIU}
+                        unit="IU"
+                        step={2}
+                        min={4}
+                        max={100}
+                      />
+                    ) : (
+                      <NumberInputWithArrows
+                        value={penVialMgInput}
+                        onChange={setPenVialMgInput}
+                        unit="mg"
+                        step={1}
+                        min={1}
+                        max={50}
+                      />
+                    )}
+                  </div>
+                  {/* Selector IU/mg para cartucho */}
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      onClick={() => setPenInputUnit("IU")}
+                      className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                        penInputUnit === "IU"
+                          ? "bg-cyan-500 text-white border-cyan-500"
+                          : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      IU
+                    </button>
+                    <button
+                      onClick={() => setPenInputUnit("mg")}
+                      className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                        penInputUnit === "mg"
+                          ? "bg-cyan-500 text-white border-cyan-500"
+                          : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      mg
+                    </button>
+                  </div>
+                  {penInputUnit === "IU" ? (
+                    <OptionButtons
+                      options={VIAL_OPTIONS_PEN}
                       value={penVialIU}
                       onChange={setPenVialIU}
                       unit="IU"
-                      step={2}
-                      min={4}
-                      max={100}
                     />
-                  </div>
-                  <OptionButtons
-                    options={VIAL_OPTIONS_PEN}
-                    value={penVialIU}
-                    onChange={setPenVialIU}
-                    unit="IU"
-                  />
+                  ) : (
+                    <OptionButtons
+                      options={VIAL_OPTIONS_PEN_MG}
+                      value={penVialMgInput}
+                      onChange={setPenVialMgInput}
+                      unit="mg"
+                    />
+                  )}
                   <p className="text-xs text-slate-500">
-                    = {formatNumber(penVialMg, 2)} mg en {PEN_CARTRIDGE_ML} mL ({formatNumber(penConcentrationIUperML, 1)} IU/mL)
+                    = {formatNumber(penVialMg, 2)} mg = {formatNumber(penVialIUCalc, 0)} IU en {PEN_CARTRIDGE_ML} mL ({formatNumber(penConcentrationIUperML, 1)} IU/mL)
                   </p>
                 </div>
 
@@ -664,23 +721,66 @@ export function VialCalculator() {
                     <label className="text-sm font-medium text-slate-700">
                       ¿Cuál es tu dosis deseada?
                     </label>
-                    <NumberInputWithArrows
+                    {penDoseUnit === "IU" ? (
+                      <NumberInputWithArrows
+                        value={penDoseIU}
+                        onChange={setPenDoseIU}
+                        unit="IU"
+                        step={1}
+                        min={1}
+                        max={50}
+                      />
+                    ) : (
+                      <NumberInputWithArrows
+                        value={penDoseMgInput}
+                        onChange={setPenDoseMgInput}
+                        unit="mg"
+                        step={0.5}
+                        min={0.1}
+                        max={20}
+                      />
+                    )}
+                  </div>
+                  {/* Selector IU/mg para dosis */}
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      onClick={() => setPenDoseUnit("IU")}
+                      className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                        penDoseUnit === "IU"
+                          ? "bg-cyan-500 text-white border-cyan-500"
+                          : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      IU
+                    </button>
+                    <button
+                      onClick={() => setPenDoseUnit("mg")}
+                      className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                        penDoseUnit === "mg"
+                          ? "bg-cyan-500 text-white border-cyan-500"
+                          : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      mg
+                    </button>
+                  </div>
+                  {penDoseUnit === "IU" ? (
+                    <OptionButtons
+                      options={DOSE_OPTIONS_IU}
                       value={penDoseIU}
                       onChange={setPenDoseIU}
                       unit="IU"
-                      step={1}
-                      min={1}
-                      max={50}
                     />
-                  </div>
-                  <OptionButtons
-                    options={DOSE_OPTIONS_IU}
-                    value={penDoseIU}
-                    onChange={setPenDoseIU}
-                    unit="IU"
-                  />
+                  ) : (
+                    <OptionButtons
+                      options={DOSE_OPTIONS_PEN_MG}
+                      value={penDoseMgInput}
+                      onChange={setPenDoseMgInput}
+                      unit="mg"
+                    />
+                  )}
                   <p className="text-xs text-slate-500">
-                    = {formatNumber(penDoseMg, 2)} mg
+                    = {formatNumber(penDoseMg, 2)} mg = {formatNumber(penDoseIUCalc, 1)} IU
                   </p>
                 </div>
 
@@ -698,7 +798,12 @@ export function VialCalculator() {
                     <div className="text-center">
                       <p className="text-slate-700 text-lg mb-2">
                         Para una dosis de{" "}
-                        <span className="font-bold">{penDoseIU} IU</span>
+                        <span className="font-bold">
+                          {penDoseUnit === "IU"
+                            ? `${penDoseIU} IU`
+                            : `${penDoseMgInput} mg (${formatNumber(penDoseIUCalc, 1)} IU)`
+                          }
+                        </span>
                       </p>
                       <p className="text-3xl font-bold text-cyan-600">
                         {penClicksNeeded} clicks
@@ -727,7 +832,7 @@ export function VialCalculator() {
                     {/* Equivalencia */}
                     <div className="mt-3 p-3 bg-cyan-50 rounded-lg text-center text-sm">
                       <p className="text-cyan-700">
-                        <span className="font-medium">{penClicksNeeded} clicks</span> = <span className="font-medium">{penDoseIU} IU</span> = <span className="font-medium">{formatNumber(penDoseMg, 2)} mg</span>
+                        <span className="font-medium">{penClicksNeeded} clicks</span> = <span className="font-medium">{formatNumber(penDoseIUCalc, 1)} IU</span> = <span className="font-medium">{formatNumber(penDoseMg, 2)} mg</span>
                       </p>
                     </div>
 
