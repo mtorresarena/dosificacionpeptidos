@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
-import Image from "next/image";
 import {
   ChevronUp,
   ChevronDown,
@@ -203,8 +202,8 @@ export function VialCalculator() {
         {/* Header con logo */}
         <header className="mb-8">
           <div className="flex items-center gap-3 mb-2">
-            <Image
-              src="/logo-qspain.jpg"
+<img
+              src={`${process.env.NODE_ENV === 'production' ? '/dosificacionpeptidos' : ''}/logo-qspain.jpg`}
               alt="Q-Spain Logo"
               width={48}
               height={48}
