@@ -5,6 +5,8 @@ import {
   ChevronUp,
   ChevronDown,
   Calculator,
+  Syringe,
+  PenTool,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,6 +24,9 @@ const STORAGE_KEY = "vial-calculator-state";
 // Conversión HGH: 1 mg = 3 IU (estándar farmacéutico)
 const HGH_IU_PER_MG = 3;
 
+// Pluma: cartucho estándar de 3 mL, 1 click = 1 IU
+const PEN_CARTRIDGE_ML = 3;
+
 const defaultInputs: CalculatorInputs = {
   vialAmount: "5",
   diluentVolume: "1",
@@ -36,11 +41,13 @@ const defaultInputs: CalculatorInputs = {
 const SYRINGE_OPTIONS = ["0.3", "0.5", "1"];
 const VIAL_OPTIONS_PEPTIDE = ["5", "10", "15"];
 const VIAL_OPTIONS_HGH = ["10", "12", "16", "36"]; // IU comunes de HGH
+const VIAL_OPTIONS_PEN = ["12", "16", "24", "36"]; // IU para plumas
 const DILUENT_OPTIONS = ["1", "2", "3", "5"];
 const DOSE_OPTIONS_MCG = ["50", "100", "250", "500"];
 const DOSE_OPTIONS_MG = ["0.5", "1", "2.5", "5"];
 const DOSE_OPTIONS_IU = ["2", "4", "6", "8"]; // IU comunes para HGH
 
+type CalculatorMode = "syringe" | "pen";
 type ProductType = "peptide" | "hgh";
 
 // Componente de jeringa visual
@@ -77,6 +84,41 @@ function SyringeVisualization({ units, maxUnits = 30 }: { units: number; maxUnit
 
         {/* Punta de la jeringa */}
         <div className="w-6 h-2 bg-slate-300 rounded-r-full border-2 border-slate-400 border-l-0" />
+      </div>
+    </div>
+  );
+}
+
+// Componente de visualización de pluma/clicks
+function PenVisualization({ clicks }: { clicks: number }) {
+  return (
+    <div className="relative w-full max-w-xs mx-auto mt-6">
+      <div className="flex flex-col items-center">
+        {/* Icono de pluma grande */}
+        <div className="relative">
+          <div className="w-32 h-16 bg-gradient-to-r from-slate-600 to-slate-700 rounded-lg flex items-center justify-center shadow-lg">
+            <div className="w-8 h-8 bg-cyan-400 rounded-full flex items-center justify-center">
+              <span className="text-white font-bold text-lg">{clicks}</span>
+            </div>
+          </div>
+          {/* Punta de la pluma */}
+          <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-6 h-3 bg-slate-500 rounded-r-full" />
+          {/* Dial de la pluma */}
+          <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-10 bg-slate-400 rounded-l-lg" />
+        </div>
+
+        {/* Indicador de clicks */}
+        <div className="mt-4 flex items-center gap-1">
+          {Array.from({ length: Math.min(clicks, 10) }, (_, i) => (
+            <div
+              key={i}
+              className="w-2 h-2 bg-cyan-500 rounded-full"
+            />
+          ))}
+          {clicks > 10 && (
+            <span className="text-xs text-slate-500 ml-1">+{clicks - 10}</span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -187,10 +229,15 @@ export function VialCalculator() {
     STORAGE_KEY,
     defaultInputs
   );
+  const [calculatorMode, setCalculatorMode] = useState<CalculatorMode>("syringe");
   const [syringeVolume, setSyringeVolume] = useState("0.3");
   const [productType, setProductType] = useState<ProductType>("peptide");
   const [vialAmountIU, setVialAmountIU] = useState("10"); // Para HGH en IU
   const [targetDoseIU, setTargetDoseIU] = useState("4"); // Dosis en IU para HGH
+
+  // Estados para pluma
+  const [penVialIU, setPenVialIU] = useState("12"); // IU en el cartucho
+  const [penDoseIU, setPenDoseIU] = useState("4"); // Dosis deseada en IU
 
   // Convertir IU a mg para HGH
   const vialMgFromIU = parseFloat(vialAmountIU) / HGH_IU_PER_MG;
@@ -208,6 +255,20 @@ export function VialCalculator() {
 
   // Cálculos
   const result = useCalculator(calculatorInputs);
+
+  // Cálculos para pluma
+  // En una pluma: el cartucho tiene 3mL, con X IU reconstituidos
+  // Concentración = IU / 3mL = IU/mL
+  // Cada click = 1 IU en el dial, pero el volumen real depende de la concentración
+  // Si la pluma está calibrada para 1 click = 1 IU (como las plumas de insulina/HGH)
+  // Entonces clicks = dosis en IU
+  const penConcentrationIUperML = parseFloat(penVialIU) / PEN_CARTRIDGE_ML;
+  const penClicksNeeded = Math.round(parseFloat(penDoseIU)); // 1 click = 1 IU
+  const penVolumeML = parseFloat(penDoseIU) / penConcentrationIUperML;
+  const penVialMg = parseFloat(penVialIU) / HGH_IU_PER_MG;
+  const penDoseMg = parseFloat(penDoseIU) / HGH_IU_PER_MG;
+  const penIsValid = parseFloat(penVialIU) > 0 && parseFloat(penDoseIU) > 0;
+  const penExceedsVial = parseFloat(penDoseIU) > parseFloat(penVialIU);
 
   // Handlers
   const updateInput = useCallback(
@@ -252,282 +313,433 @@ export function VialCalculator() {
           </div>
         </header>
 
+        {/* Selector de modo: Jeringa vs Pluma */}
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => setCalculatorMode("syringe")}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 font-medium transition-all ${
+              calculatorMode === "syringe"
+                ? "bg-cyan-500 text-white border-cyan-500 shadow-lg"
+                : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+            }`}
+          >
+            <Syringe className="h-5 w-5" />
+            Jeringa
+          </button>
+          <button
+            onClick={() => setCalculatorMode("pen")}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 font-medium transition-all ${
+              calculatorMode === "pen"
+                ? "bg-cyan-500 text-white border-cyan-500 shadow-lg"
+                : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+            }`}
+          >
+            <PenTool className="h-5 w-5" />
+            Pluma
+          </button>
+        </div>
+
         <Card className="shadow-lg border-0">
           <CardContent className="p-6 space-y-6">
-            {/* Selector de tipo de producto */}
-            <div className="space-y-3">
-              <label className="text-sm font-medium text-slate-700">
-                Tipo de producto
-              </label>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleProductTypeChange("peptide")}
-                  className={`flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
-                    productType === "peptide"
-                      ? "bg-cyan-500 text-white border-cyan-500"
-                      : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  Péptidos
-                </button>
-                <button
-                  onClick={() => handleProductTypeChange("hgh")}
-                  className={`flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
-                    productType === "hgh"
-                      ? "bg-cyan-500 text-white border-cyan-500"
-                      : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  HGH
-                </button>
-              </div>
-            </div>
 
-            {/* Volumen de jeringa */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-slate-700">
-                  ¿Cuál es el volumen total de la jeringa?
-                </label>
-                <NumberInputWithArrows
-                  value={syringeVolume}
-                  onChange={setSyringeVolume}
-                  unit="ml"
-                  step={0.1}
-                  min={0.1}
-                  max={3}
-                />
-              </div>
-              <OptionButtons
-                options={SYRINGE_OPTIONS}
-                value={syringeVolume}
-                onChange={setSyringeVolume}
-                unit="ml"
-              />
-            </div>
+            {/* ==================== MODO JERINGA ==================== */}
+            {calculatorMode === "syringe" && (
+              <>
+                {/* Selector de tipo de producto */}
+                <div className="space-y-3">
+                  <label className="text-sm font-medium text-slate-700">
+                    Tipo de producto
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleProductTypeChange("peptide")}
+                      className={`flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                        productType === "peptide"
+                          ? "bg-cyan-500 text-white border-cyan-500"
+                          : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      Péptidos
+                    </button>
+                    <button
+                      onClick={() => handleProductTypeChange("hgh")}
+                      className={`flex-1 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                        productType === "hgh"
+                          ? "bg-cyan-500 text-white border-cyan-500"
+                          : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      HGH
+                    </button>
+                  </div>
+                </div>
 
-            {/* Cantidad del vial */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-slate-700">
-                  {productType === "hgh"
-                    ? "¿Cuántas IU tiene el vial de HGH?"
-                    : "¿Cuántos mg de péptido tiene el vial?"
-                  }
-                </label>
-                {productType === "hgh" ? (
-                  <NumberInputWithArrows
-                    value={vialAmountIU}
-                    onChange={setVialAmountIU}
-                    unit="IU"
-                    step={2}
-                    min={2}
-                    max={100}
-                  />
-                ) : (
-                  <NumberInputWithArrows
-                    value={inputs.vialAmount}
-                    onChange={(val) => updateInput("vialAmount", val)}
-                    unit="mg"
-                    step={1}
-                    min={1}
-                    max={100}
-                  />
-                )}
-              </div>
-              {productType === "hgh" ? (
-                <>
-                  <OptionButtons
-                    options={VIAL_OPTIONS_HGH}
-                    value={vialAmountIU}
-                    onChange={setVialAmountIU}
-                    unit="IU"
-                  />
-                  <p className="text-xs text-slate-500">
-                    = {formatNumber(vialMgFromIU, 2)} mg (1 mg = 3 IU)
-                  </p>
-                </>
-              ) : (
-                <OptionButtons
-                  options={VIAL_OPTIONS_PEPTIDE}
-                  value={inputs.vialAmount}
-                  onChange={(val) => updateInput("vialAmount", val)}
-                  unit="mg"
-                />
-              )}
-            </div>
-
-            {/* Diluyente */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-slate-700">
-                  ¿Cuánta agua bacteriostática añades?
-                </label>
-                <NumberInputWithArrows
-                  value={inputs.diluentVolume}
-                  onChange={(val) => updateInput("diluentVolume", val)}
-                  unit="ml"
-                  step={0.5}
-                  min={0.5}
-                  max={10}
-                />
-              </div>
-              <OptionButtons
-                options={DILUENT_OPTIONS}
-                value={inputs.diluentVolume}
-                onChange={(val) => updateInput("diluentVolume", val)}
-                unit="ml"
-              />
-            </div>
-
-            {/* Dosis deseada */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-slate-700">
-                  ¿Cuál es tu dosis deseada?
-                </label>
-                <div className="flex items-center gap-2">
-                  {productType === "hgh" ? (
+                {/* Volumen de jeringa */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-slate-700">
+                      ¿Cuál es el volumen total de la jeringa?
+                    </label>
                     <NumberInputWithArrows
-                      value={targetDoseIU}
-                      onChange={setTargetDoseIU}
-                      unit="IU"
-                      step={1}
-                      min={1}
-                      max={20}
+                      value={syringeVolume}
+                      onChange={setSyringeVolume}
+                      unit="ml"
+                      step={0.1}
+                      min={0.1}
+                      max={3}
                     />
+                  </div>
+                  <OptionButtons
+                    options={SYRINGE_OPTIONS}
+                    value={syringeVolume}
+                    onChange={setSyringeVolume}
+                    unit="ml"
+                  />
+                </div>
+
+                {/* Cantidad del vial */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-slate-700">
+                      {productType === "hgh"
+                        ? "¿Cuántas IU tiene el vial de HGH?"
+                        : "¿Cuántos mg de péptido tiene el vial?"
+                      }
+                    </label>
+                    {productType === "hgh" ? (
+                      <NumberInputWithArrows
+                        value={vialAmountIU}
+                        onChange={setVialAmountIU}
+                        unit="IU"
+                        step={2}
+                        min={2}
+                        max={100}
+                      />
+                    ) : (
+                      <NumberInputWithArrows
+                        value={inputs.vialAmount}
+                        onChange={(val) => updateInput("vialAmount", val)}
+                        unit="mg"
+                        step={1}
+                        min={1}
+                        max={100}
+                      />
+                    )}
+                  </div>
+                  {productType === "hgh" ? (
+                    <>
+                      <OptionButtons
+                        options={VIAL_OPTIONS_HGH}
+                        value={vialAmountIU}
+                        onChange={setVialAmountIU}
+                        unit="IU"
+                      />
+                      <p className="text-xs text-slate-500">
+                        = {formatNumber(vialMgFromIU, 2)} mg (1 mg = 3 IU)
+                      </p>
+                    </>
                   ) : (
-                    <NumberInputWithArrows
-                      value={inputs.targetDose}
-                      onChange={(val) => updateInput("targetDose", val)}
-                      unit={inputs.doseUnit}
-                      step={inputs.doseUnit === "mcg" ? 50 : 0.5}
-                      min={inputs.doseUnit === "mcg" ? 10 : 0.1}
-                      max={inputs.doseUnit === "mcg" ? 5000 : 50}
+                    <OptionButtons
+                      options={VIAL_OPTIONS_PEPTIDE}
+                      value={inputs.vialAmount}
+                      onChange={(val) => updateInput("vialAmount", val)}
+                      unit="mg"
                     />
                   )}
                 </div>
-              </div>
 
-              {productType === "hgh" ? (
-                <>
+                {/* Diluyente */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-slate-700">
+                      ¿Cuánta agua bacteriostática añades?
+                    </label>
+                    <NumberInputWithArrows
+                      value={inputs.diluentVolume}
+                      onChange={(val) => updateInput("diluentVolume", val)}
+                      unit="ml"
+                      step={0.5}
+                      min={0.5}
+                      max={10}
+                    />
+                  </div>
                   <OptionButtons
-                    options={DOSE_OPTIONS_IU}
-                    value={targetDoseIU}
-                    onChange={setTargetDoseIU}
+                    options={DILUENT_OPTIONS}
+                    value={inputs.diluentVolume}
+                    onChange={(val) => updateInput("diluentVolume", val)}
+                    unit="ml"
+                  />
+                </div>
+
+                {/* Dosis deseada */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-slate-700">
+                      ¿Cuál es tu dosis deseada?
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {productType === "hgh" ? (
+                        <NumberInputWithArrows
+                          value={targetDoseIU}
+                          onChange={setTargetDoseIU}
+                          unit="IU"
+                          step={1}
+                          min={1}
+                          max={20}
+                        />
+                      ) : (
+                        <NumberInputWithArrows
+                          value={inputs.targetDose}
+                          onChange={(val) => updateInput("targetDose", val)}
+                          unit={inputs.doseUnit}
+                          step={inputs.doseUnit === "mcg" ? 50 : 0.5}
+                          min={inputs.doseUnit === "mcg" ? 10 : 0.1}
+                          max={inputs.doseUnit === "mcg" ? 5000 : 50}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {productType === "hgh" ? (
+                    <>
+                      <OptionButtons
+                        options={DOSE_OPTIONS_IU}
+                        value={targetDoseIU}
+                        onChange={setTargetDoseIU}
+                        unit="IU"
+                      />
+                      <p className="text-xs text-slate-500">
+                        = {formatNumber(doseMgFromIU, 2)} mg (1 mg = 3 IU)
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      {/* Selector mg/mcg */}
+                      <div className="flex gap-2 mb-2">
+                        <button
+                          onClick={() => updateInput("doseUnit", "mg")}
+                          className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                            inputs.doseUnit === "mg"
+                              ? "bg-cyan-500 text-white border-cyan-500"
+                              : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                          }`}
+                        >
+                          mg
+                        </button>
+                        <button
+                          onClick={() => updateInput("doseUnit", "mcg")}
+                          className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                            inputs.doseUnit === "mcg"
+                              ? "bg-cyan-500 text-white border-cyan-500"
+                              : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                          }`}
+                        >
+                          mcg
+                        </button>
+                      </div>
+                      <OptionButtons
+                        options={inputs.doseUnit === "mcg" ? DOSE_OPTIONS_MCG : DOSE_OPTIONS_MG}
+                        value={inputs.targetDose}
+                        onChange={(val) => updateInput("targetDose", val)}
+                        unit={inputs.doseUnit}
+                      />
+                    </>
+                  )}
+                </div>
+
+                {/* Botón calcular (decorativo, el cálculo es en tiempo real) */}
+                <Button
+                  className="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-medium py-6 text-base rounded-xl"
+                >
+                  <Calculator className="h-5 w-5 mr-2" />
+                  Calcular
+                </Button>
+
+                {/* Resultado Jeringa */}
+                {result.isValid && (
+                  <div className="pt-4 border-t border-slate-100">
+                    <div className="text-center">
+                      <p className="text-slate-700 text-lg">
+                        Para una dosis de{" "}
+                        <span className="font-bold">
+                          {productType === "hgh"
+                            ? `${targetDoseIU} IU`
+                            : `${inputs.targetDose}${inputs.doseUnit}`
+                          }
+                        </span>,{" "}
+                        <span className="text-cyan-600 font-bold">
+                          lleva la jeringa hasta {formatNumber(result.unitsU100Rounded, 1)}
+                        </span>
+                      </p>
+                    </div>
+
+                    {/* Jeringa visual */}
+                    <SyringeVisualization
+                      units={result.unitsU100Rounded}
+                      maxUnits={maxUnits}
+                    />
+
+                    {/* Info adicional */}
+                    <div className="mt-4 grid grid-cols-2 gap-4 text-center text-sm">
+                      <div className="p-3 bg-slate-50 rounded-lg">
+                        <p className="text-slate-500">Volumen</p>
+                        <p className="font-bold text-slate-800">
+                          {formatNumber(result.volumeMlRounded)} mL
+                        </p>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-lg">
+                        <p className="text-slate-500">Concentración</p>
+                        <p className="font-bold text-slate-800">
+                          {productType === "hgh"
+                            ? `${formatNumber(result.concentrationMgPerMl * HGH_IU_PER_MG, 1)} IU/mL`
+                            : `${formatNumber(result.concentrationMgPerMl)} mg/mL`
+                          }
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Equivalencias para HGH */}
+                    {productType === "hgh" && (
+                      <div className="mt-3 p-3 bg-cyan-50 rounded-lg text-center text-sm">
+                        <p className="text-cyan-700">
+                          <span className="font-medium">{targetDoseIU} IU</span> = <span className="font-medium">{formatNumber(doseMgFromIU, 2)} mg</span>
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Alertas */}
+                    {result.exceedsVial && (
+                      <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                        Advertencia: La dosis supera el contenido total del vial.
+                      </div>
+                    )}
+                    {result.volumeTooSmall && !result.exceedsVial && (
+                      <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm">
+                        Advertencia: Volumen muy pequeño (&lt;0,02 mL), puede ser difícil de medir con precisión.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ==================== MODO PLUMA ==================== */}
+            {calculatorMode === "pen" && (
+              <>
+                {/* Info del cartucho */}
+                <div className="p-3 bg-slate-100 rounded-lg text-sm text-slate-600">
+                  <p className="font-medium">Pluma de insulina</p>
+                  <p>Cartucho estándar: {PEN_CARTRIDGE_ML} mL | 1 click = 1 IU</p>
+                </div>
+
+                {/* Cantidad de IU en el cartucho */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-slate-700">
+                      ¿Cuántas IU has reconstituido en el cartucho?
+                    </label>
+                    <NumberInputWithArrows
+                      value={penVialIU}
+                      onChange={setPenVialIU}
+                      unit="IU"
+                      step={2}
+                      min={4}
+                      max={100}
+                    />
+                  </div>
+                  <OptionButtons
+                    options={VIAL_OPTIONS_PEN}
+                    value={penVialIU}
+                    onChange={setPenVialIU}
                     unit="IU"
                   />
                   <p className="text-xs text-slate-500">
-                    = {formatNumber(doseMgFromIU, 2)} mg (1 mg = 3 IU)
+                    = {formatNumber(penVialMg, 2)} mg en {PEN_CARTRIDGE_ML} mL ({formatNumber(penConcentrationIUperML, 1)} IU/mL)
                   </p>
-                </>
-              ) : (
-                <>
-                  {/* Selector mg/mcg */}
-                  <div className="flex gap-2 mb-2">
-                    <button
-                      onClick={() => updateInput("doseUnit", "mg")}
-                      className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                        inputs.doseUnit === "mg"
-                          ? "bg-cyan-500 text-white border-cyan-500"
-                          : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
-                      }`}
-                    >
-                      mg
-                    </button>
-                    <button
-                      onClick={() => updateInput("doseUnit", "mcg")}
-                      className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                        inputs.doseUnit === "mcg"
-                          ? "bg-cyan-500 text-white border-cyan-500"
-                          : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
-                      }`}
-                    >
-                      mcg
-                    </button>
+                </div>
+
+                {/* Dosis deseada */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-slate-700">
+                      ¿Cuál es tu dosis deseada?
+                    </label>
+                    <NumberInputWithArrows
+                      value={penDoseIU}
+                      onChange={setPenDoseIU}
+                      unit="IU"
+                      step={1}
+                      min={1}
+                      max={50}
+                    />
                   </div>
                   <OptionButtons
-                    options={inputs.doseUnit === "mcg" ? DOSE_OPTIONS_MCG : DOSE_OPTIONS_MG}
-                    value={inputs.targetDose}
-                    onChange={(val) => updateInput("targetDose", val)}
-                    unit={inputs.doseUnit}
+                    options={DOSE_OPTIONS_IU}
+                    value={penDoseIU}
+                    onChange={setPenDoseIU}
+                    unit="IU"
                   />
-                </>
-              )}
-            </div>
-
-            {/* Botón calcular (decorativo, el cálculo es en tiempo real) */}
-            <Button
-              className="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-medium py-6 text-base rounded-xl"
-            >
-              <Calculator className="h-5 w-5 mr-2" />
-              Calcular
-            </Button>
-
-            {/* Resultado */}
-            {result.isValid && (
-              <div className="pt-4 border-t border-slate-100">
-                <div className="text-center">
-                  <p className="text-slate-700 text-lg">
-                    Para una dosis de{" "}
-                    <span className="font-bold">
-                      {productType === "hgh"
-                        ? `${targetDoseIU} IU`
-                        : `${inputs.targetDose}${inputs.doseUnit}`
-                      }
-                    </span>,{" "}
-                    <span className="text-cyan-600 font-bold">
-                      lleva la jeringa hasta {formatNumber(result.unitsU100Rounded, 1)}
-                    </span>
+                  <p className="text-xs text-slate-500">
+                    = {formatNumber(penDoseMg, 2)} mg
                   </p>
                 </div>
 
-                {/* Jeringa visual */}
-                <SyringeVisualization
-                  units={result.unitsU100Rounded}
-                  maxUnits={maxUnits}
-                />
+                {/* Botón calcular */}
+                <Button
+                  className="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-medium py-6 text-base rounded-xl"
+                >
+                  <Calculator className="h-5 w-5 mr-2" />
+                  Calcular Clicks
+                </Button>
 
-                {/* Info adicional */}
-                <div className="mt-4 grid grid-cols-2 gap-4 text-center text-sm">
-                  <div className="p-3 bg-slate-50 rounded-lg">
-                    <p className="text-slate-500">Volumen</p>
-                    <p className="font-bold text-slate-800">
-                      {formatNumber(result.volumeMlRounded)} mL
-                    </p>
-                  </div>
-                  <div className="p-3 bg-slate-50 rounded-lg">
-                    <p className="text-slate-500">Concentración</p>
-                    <p className="font-bold text-slate-800">
-                      {productType === "hgh"
-                        ? `${formatNumber(result.concentrationMgPerMl * HGH_IU_PER_MG, 1)} IU/mL`
-                        : `${formatNumber(result.concentrationMgPerMl)} mg/mL`
-                      }
-                    </p>
-                  </div>
-                </div>
+                {/* Resultado Pluma */}
+                {penIsValid && (
+                  <div className="pt-4 border-t border-slate-100">
+                    <div className="text-center">
+                      <p className="text-slate-700 text-lg mb-2">
+                        Para una dosis de{" "}
+                        <span className="font-bold">{penDoseIU} IU</span>
+                      </p>
+                      <p className="text-3xl font-bold text-cyan-600">
+                        {penClicksNeeded} clicks
+                      </p>
+                    </div>
 
-                {/* Equivalencias para HGH */}
-                {productType === "hgh" && (
-                  <div className="mt-3 p-3 bg-cyan-50 rounded-lg text-center text-sm">
-                    <p className="text-cyan-700">
-                      <span className="font-medium">{targetDoseIU} IU</span> = <span className="font-medium">{formatNumber(doseMgFromIU, 2)} mg</span>
-                    </p>
+                    {/* Pluma visual */}
+                    <PenVisualization clicks={penClicksNeeded} />
+
+                    {/* Info adicional */}
+                    <div className="mt-4 grid grid-cols-2 gap-4 text-center text-sm">
+                      <div className="p-3 bg-slate-50 rounded-lg">
+                        <p className="text-slate-500">Volumen inyectado</p>
+                        <p className="font-bold text-slate-800">
+                          {formatNumber(penVolumeML, 3)} mL
+                        </p>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-lg">
+                        <p className="text-slate-500">Concentración</p>
+                        <p className="font-bold text-slate-800">
+                          {formatNumber(penConcentrationIUperML, 1)} IU/mL
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Equivalencia */}
+                    <div className="mt-3 p-3 bg-cyan-50 rounded-lg text-center text-sm">
+                      <p className="text-cyan-700">
+                        <span className="font-medium">{penClicksNeeded} clicks</span> = <span className="font-medium">{penDoseIU} IU</span> = <span className="font-medium">{formatNumber(penDoseMg, 2)} mg</span>
+                      </p>
+                    </div>
+
+                    {/* Alertas */}
+                    {penExceedsVial && (
+                      <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                        Advertencia: La dosis supera el contenido total del cartucho.
+                      </div>
+                    )}
                   </div>
                 )}
-
-                {/* Alertas */}
-                {result.exceedsVial && (
-                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                    Advertencia: La dosis supera el contenido total del vial.
-                  </div>
-                )}
-                {result.volumeTooSmall && !result.exceedsVial && (
-                  <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm">
-                    Advertencia: Volumen muy pequeño (&lt;0,02 mL), puede ser difícil de medir con precisión.
-                  </div>
-                )}
-              </div>
+              </>
             )}
 
             {/* Disclaimer */}
