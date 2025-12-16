@@ -48,8 +48,7 @@ const DOSE_OPTIONS_MG = ["0.5", "1", "2.5", "5"];
 const DOSE_OPTIONS_IU = ["2", "4", "6", "8"]; // IU comunes para HGH
 const VIAL_OPTIONS_PEN_MG = ["4", "5", "8", "12"]; // mg comunes para plumas HGH
 const DOSE_OPTIONS_PEN_MG = ["0.5", "1", "1.5", "2"]; // mg comunes para dosis de pluma HGH
-const VIAL_OPTIONS_PEN_PEPTIDE = ["5000", "10000", "15000"]; // mcg comunes para péptidos en pluma
-const DOSE_OPTIONS_PEN_PEPTIDE = ["100", "250", "500", "1000"]; // mcg comunes para dosis de péptidos
+const DOSE_OPTIONS_PEN_PEPTIDE_MG = ["0.1", "0.25", "0.5", "1"]; // mg comunes para dosis de péptidos en pluma
 
 type CalculatorMode = "syringe" | "pen";
 type ProductType = "peptide" | "hgh";
@@ -249,8 +248,6 @@ export function VialCalculator() {
   const [penDoseMgInput, setPenDoseMgInput] = useState("1"); // Dosis en mg (HGH)
   // Estados para péptidos en pluma
   const [penPeptideVialMg, setPenPeptideVialMg] = useState("5"); // mg en el cartucho
-  const [penPeptideDoseUnit, setPenPeptideDoseUnit] = useState<"mcg" | "mg">("mcg"); // Unidad para dosis
-  const [penPeptideDoseMcg, setPenPeptideDoseMcg] = useState("250"); // Dosis en mcg
   const [penPeptideDoseMg, setPenPeptideDoseMg] = useState("0.25"); // Dosis en mg
 
   // Convertir IU a mg para HGH
@@ -279,24 +276,36 @@ export function VialCalculator() {
     ? parseFloat(penDoseIU)
     : parseFloat(penDoseMgInput) * HGH_IU_PER_MG;
 
-  // Para péptidos: convertir mg a mcg si es necesario
-  const penPeptideVialMcg = parseFloat(penPeptideVialMg) * 1000; // mg a mcg
-  const penPeptideDoseMcgCalc = penPeptideDoseUnit === "mcg"
-    ? parseFloat(penPeptideDoseMcg)
-    : parseFloat(penPeptideDoseMg) * 1000; // mg a mcg
-  const penPeptideVialUnits = penPeptideVialMcg; // mcg = units
-  const penPeptideDoseUnits = penPeptideDoseMcgCalc; // mcg = units
+  // Para péptidos: todo en mg
+  const penPeptideVialMgCalc = parseFloat(penPeptideVialMg);
+  const penPeptideDoseMgCalc = parseFloat(penPeptideDoseMg);
+
+  // Concentración en mg/mL para péptidos
+  const penPeptideConcentrationMgPerML = penPeptideVialMgCalc / PEN_CARTRIDGE_ML;
+  // Volumen necesario para la dosis en mL
+  const penPeptideVolumeML = penPeptideDoseMgCalc / penPeptideConcentrationMgPerML;
+  // Clicks = volumen en mL * 100 (cada click = 0.01 mL = 1 unidad en dial de insulina)
+  const penPeptideClicksNeeded = Math.round(penPeptideVolumeML * 100);
 
   // Valores calculados según tipo de producto
-  const penVialUnitsCalc = penProductType === "hgh" ? penVialIUCalc : penPeptideVialUnits;
-  const penDoseUnitsCalc = penProductType === "hgh" ? penDoseIUCalc : penPeptideDoseUnits;
+  const penVialUnitsCalc = penProductType === "hgh" ? penVialIUCalc : penPeptideVialMgCalc;
+  const penDoseUnitsCalc = penProductType === "hgh" ? penDoseIUCalc : penPeptideDoseMgCalc;
 
   // En una pluma: el cartucho tiene 3mL, con X unidades reconstituidas
-  // Concentración = units / 3mL = units/mL
-  // Cada click = 1 unidad en el dial
-  const penConcentrationPerML = penVialUnitsCalc / PEN_CARTRIDGE_ML;
-  const penClicksNeeded = Math.round(penDoseUnitsCalc); // 1 click = 1 unit/IU
-  const penVolumeML = penDoseUnitsCalc / penConcentrationPerML;
+  // Para HGH: Concentración = IU / 3mL = IU/mL, cada click = 1 IU
+  // Para Péptidos: Concentración = mg / 3mL = mg/mL, clicks basados en volumen
+  const penConcentrationPerML = penProductType === "hgh"
+    ? penVialIUCalc / PEN_CARTRIDGE_ML
+    : penPeptideConcentrationMgPerML;
+
+  // Para HGH: 1 click = 1 IU. Para Péptidos: clicks basados en volumen (1 click = 0.01 mL)
+  const penClicksNeeded = penProductType === "hgh"
+    ? Math.round(penDoseIUCalc)
+    : penPeptideClicksNeeded;
+
+  const penVolumeML = penProductType === "hgh"
+    ? penDoseIUCalc / (penVialIUCalc / PEN_CARTRIDGE_ML)
+    : penPeptideVolumeML;
 
   // Para HGH: conversión a mg
   const penVialMg = penVialIUCalc / HGH_IU_PER_MG;
@@ -703,7 +712,7 @@ export function VialCalculator() {
                 {/* ===== PÉPTIDOS EN PLUMA ===== */}
                 {penProductType === "peptide" && (
                   <>
-                    {/* Cantidad en el cartucho - Péptidos (siempre en mg) */}
+                    {/* Cantidad en el cartucho - Péptidos (en mg) */}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <label className="text-sm font-medium text-slate-700">
@@ -725,76 +734,33 @@ export function VialCalculator() {
                         unit="mg"
                       />
                       <p className="text-xs text-slate-500">
-                        = {formatNumber(penPeptideVialMcg, 0)} mcg en {PEN_CARTRIDGE_ML} mL ({formatNumber(penConcentrationPerML, 0)} units/mL)
+                        = {formatNumber(penPeptideConcentrationMgPerML, 2)} mg/mL
                       </p>
                     </div>
 
-                    {/* Dosis deseada - Péptidos */}
+                    {/* Dosis deseada - Péptidos (en mg) */}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <label className="text-sm font-medium text-slate-700">
                           ¿Cuál es tu dosis deseada?
                         </label>
-                        {penPeptideDoseUnit === "mcg" ? (
-                          <NumberInputWithArrows
-                            value={penPeptideDoseMcg}
-                            onChange={setPenPeptideDoseMcg}
-                            unit="mcg"
-                            step={50}
-                            min={10}
-                            max={5000}
-                          />
-                        ) : (
-                          <NumberInputWithArrows
-                            value={penPeptideDoseMg}
-                            onChange={setPenPeptideDoseMg}
-                            unit="mg"
-                            step={0.1}
-                            min={0.01}
-                            max={5}
-                          />
-                        )}
-                      </div>
-                      {/* Selector mcg/mg para dosis */}
-                      <div className="flex gap-2 mb-2">
-                        <button
-                          onClick={() => setPenPeptideDoseUnit("mcg")}
-                          className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                            penPeptideDoseUnit === "mcg"
-                              ? "bg-cyan-500 text-white border-cyan-500"
-                              : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
-                          }`}
-                        >
-                          mcg
-                        </button>
-                        <button
-                          onClick={() => setPenPeptideDoseUnit("mg")}
-                          className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                            penPeptideDoseUnit === "mg"
-                              ? "bg-cyan-500 text-white border-cyan-500"
-                              : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
-                          }`}
-                        >
-                          mg
-                        </button>
-                      </div>
-                      {penPeptideDoseUnit === "mcg" ? (
-                        <OptionButtons
-                          options={DOSE_OPTIONS_PEN_PEPTIDE}
-                          value={penPeptideDoseMcg}
-                          onChange={setPenPeptideDoseMcg}
-                          unit="mcg"
-                        />
-                      ) : (
-                        <OptionButtons
-                          options={DOSE_OPTIONS_MG}
+                        <NumberInputWithArrows
                           value={penPeptideDoseMg}
                           onChange={setPenPeptideDoseMg}
                           unit="mg"
+                          step={0.1}
+                          min={0.01}
+                          max={5}
                         />
-                      )}
+                      </div>
+                      <OptionButtons
+                        options={DOSE_OPTIONS_PEN_PEPTIDE_MG}
+                        value={penPeptideDoseMg}
+                        onChange={setPenPeptideDoseMg}
+                        unit="mg"
+                      />
                       <p className="text-xs text-slate-500">
-                        = {formatNumber(penPeptideDoseMcgCalc / 1000, 2)} mg = {formatNumber(penPeptideDoseMcgCalc, 0)} mcg
+                        = {formatNumber(penPeptideVolumeML, 3)} mL = {penPeptideClicksNeeded} clicks
                       </p>
                     </div>
                   </>
@@ -959,9 +925,7 @@ export function VialCalculator() {
                         Para una dosis de{" "}
                         <span className="font-bold">
                           {penProductType === "peptide"
-                            ? penPeptideDoseUnit === "mcg"
-                              ? `${penPeptideDoseMcg} mcg`
-                              : `${penPeptideDoseMg} mg`
+                            ? `${penPeptideDoseMg} mg`
                             : penDoseUnit === "IU"
                               ? `${penDoseIU} IU`
                               : `${penDoseMgInput} mg (${formatNumber(penDoseIUCalc, 1)} IU)`
@@ -997,7 +961,7 @@ export function VialCalculator() {
                       <p className="text-cyan-700">
                         {penProductType === "peptide" ? (
                           <>
-                            <span className="font-medium">{penClicksNeeded} clicks</span> = <span className="font-medium">{formatNumber(penPeptideDoseMcgCalc, 0)} mcg</span> = <span className="font-medium">{formatNumber(penPeptideDoseMcgCalc / 1000, 2)} mg</span>
+                            <span className="font-medium">{penClicksNeeded} clicks</span> = <span className="font-medium">{formatNumber(penPeptideVolumeML, 3)} mL</span> = <span className="font-medium">{formatNumber(penPeptideDoseMgCalc, 2)} mg</span>
                           </>
                         ) : (
                           <>
